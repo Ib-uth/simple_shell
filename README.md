@@ -1,2 +1,1 @@
-# simple_shell
-A simple shell project with C
+0x16. C - Simple Shell

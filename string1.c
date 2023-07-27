@@ -1,87 +1,109 @@
 #include "shell.h"
 
 /**
- * _strcpy - copies a string
- * @dest: the destination
- * @src: the source
+ * my_strcspn - Calculates the length of the initial segment of a string
+ *              that does not contain any characters from another string.
+ * @str1: The string to be searched.
+ * @str2: The set of characters to search for.
  *
- * Return: pointer to destination
+ * Return: The length of the initial segment without matching characters.
  */
-char *_strcpy(char *dest, char *src)
+size_t my_strcspn(const char *str1, const char *str2)
 {
-	int i = 0;
+	const char *p1, *p2;
 
-	if (dest == src || src == 0)
-		return (dest);
-	while (src[i])
+	for (p1 = str1; *p1 != '\0'; p1++)
 	{
-		dest[i] = src[i];
-		i++;
+		for (p2 = str2; *p2 != '\0'; p2++)
+		{
+			if (*p1 == *p2)
+			{
+				return (p1 - str1);
+			}
+		}
 	}
-	dest[i] = 0;
-	return (dest);
+
+	return (p1 - str1);
 }
 
 /**
- * _strdup - duplicates a string
- * @str: the string to duplicate
+ * my_strcat - Concatenates two strings.
+ * @destination: The destination string.
+ * @source: The source string.
  *
- * Return: pointer to the duplicated string
+ * Return: Pointer to the resulting concatenated string.
  */
-char *_strdup(const char *str)
+char *my_strcat(char *destination, const char *source)
 {
-	int length = 0;
-	char *ret;
+	char *ptr = destination;
 
-	if (str == NULL)
-		return (NULL);
-	while (*str++)
-		length++;
-	ret = malloc(sizeof(char) * (length + 1));
-	if (!ret)
-		return (NULL);
-	for (length++; length--;)
-		ret[length] = *--str;
-	return (ret);
+	/* Find the end of the destination string */
+	while (*ptr)
+		ptr++;
+
+	/* Append characters from the source string to the destination string */
+	while (*source)
+	{
+		*ptr = *source;
+		ptr++;
+		source++;
+	}
+
+	/* Append null character at the end of the concatenated string */
+	*ptr = '\0';
+
+	return (destination);
 }
 
 /**
- *_puts - prints an input string
- *@str: the string to be printed
+ * my_strncat - Concatenates at most 'n' characters from 'src' to 'dest'
+ * @dest: The destination buffer to which 'src' will be appended
+ * @src: The source string to be concatenated to 'dest'
+ * @n: The maximum number of characters to concatenate from 'src'
  *
- * Return: Nothing
+ * Return: A pointer to the destination buffer 'dest'
  */
-void _puts(char *str)
-{
-	int i = 0;
 
-	if (!str)
-		return;
-	while (str[i] != '\0')
+char *my_strncat(char *dest, const char *src, size_t n)
+{
+	char *original_dest = dest;
+
+	/* Move the destination pointer to the end of the destination string */
+	while (*dest)
+		dest++;
+
+	/* Copy at most 'n' characters from src to dest */
+	while (*src && n > 0)
 	{
-		_putchar(str[i]);
-		i++;
+		*dest++ = *src++;
+		n--;
 	}
+
+	/* Null-terminate the destination string */
+	*dest = '\0';
+
+	return (original_dest);
 }
 
 /**
- * _putchar - writes the character c to stdout
- * @c: The character to print
+ * my_strncmp - compare two strings up to a specified number of characters
+ * @str1: pointer to the first string to compare
+ * @str2: pointer to the second string to compare
+ * @n: the maximum number of characters to compare
  *
- * Return: On success 1.
- * On error, -1 is returned, and errno is set appropriately.
+ * Return: an integer less than, equal to, or greater than zero if the first n
+ *         characters of str1 are found, respectively, to be less than, to
+ *         match, or be greater than the first n characters of str2
  */
-int _putchar(char c)
+int my_strncmp(const char *str1, const char *str2, size_t n)
 {
-	static int i;
-	static char buf[WRITE_BUF_SIZE];
+	size_t i;
 
-	if (c == BUF_FLUSH || i >= WRITE_BUF_SIZE)
+	for (i = 0; i < n; i++)
 	{
-		write(1, buf, i);
-		i = 0;
+		if (str1[i] == '\0' || str2[i] == '\0' || str1[i] != str2[i])
+			return str1[i] - str2[i];
 	}
-	if (c != BUF_FLUSH)
-		buf[i++] = c;
-	return (1);
-}
+
+	return (0);
+} 

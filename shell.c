@@ -1,497 +1,177 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <signal.h>
+#include "shell.h"
 
-#define MAX_COMMAND_LENGTH 1024
-#define MAX_ARGUMENTS 64
+/**
+ * tokenize_arguments - Tokenizes a command line into arguments.
+ * @command: The command line string to be tokenized.
+ * @arguments: An array to store the resulting arguments.
+ *
+ * Description:
+ *   This function takes a command line string and tokenizes it into separate
+ *   arguments based on space (' ') delimiters. The resulting arguments are
+ *   stored in the provided `arguments` array, with a maximum number of
+ *   arguments limited by `MAX_ARGUMENTS`. The last element of the `arguments`
+ *   array is set to NULL to indicate the end of the argument list.
+ */
 
-typedef struct Alias {
-    char *name;
-    char *value;
-    struct Alias *next;
-} Alias;
-
-Alias *alias_list = NULL;
-int last_exit_status = 0;
-
-char *read_line()
+void tokenize_arguments(char *command, char *arguments[])
 {
-    char *line = NULL;
-    size_t bufsize = 0;
-    getline(&line, &bufsize, stdin);
-    return line;
+	char *token;
+	int arg_count = 0;
+
+	token = strtok(command, " ");
+	while (token != NULL && arg_count < MAX_ARGUMENTS)
+	{
+		arguments[arg_count] = token;
+		arg_count++;
+		token = strtok(NULL, " ");
+	}
+	arguments[arg_count] = NULL;
 }
 
-char *read_line_from_file(FILE *file)
+/**
+ * execute_command - Executes a command by forking a child process.
+ * @arguments: An array of command arguments.
+ *
+ * Description: his function forks a child process and executes a command
+ * with the given arguments
+ *
+ *  Return: Returns 0 upon successful execution.
+ */
+
+int execute_command(char *arguments[])
 {
-    char *line = NULL;
-    size_t bufsize = 0;
-    ssize_t characters_read;
+	int status;
+	pid_t pid = fork();
 
-    characters_read = getline(&line, &bufsize, file);
-    if (characters_read == -1)
-    {
-        free(line);
-        return NULL; // End of file or error
-    }
-
-    // Remove the trailing newline character, if present
-    if (line[characters_read - 1] == '\n')
-    {
-        line[characters_read - 1] = '\0';
-    }
-
-    return line;
+	if (pid < 0)
+	{
+		write_stderr("fork failed\n");
+		exit(EXIT_FAILURE);
+	}
+	else if (pid == 0)
+	{
+		/* Child process */
+		execve(arguments[0], arguments, NULL);
+		perror("");
+		exit(EXIT_FAILURE);
+	}
+	else
+	{
+		/* Parent process */
+		waitpid(pid, &status, 0);
+		/* write_status_message(status); */
+	}
+	return (0);
 }
 
-char **parse_arguments(char *line)
+/**
+ * handle_command - Handle a single command entered by the user.
+ * @command: The command to handle.
+ *
+ * This function tokenizes the command into arguments and executes the command
+ * if it is not an exit command.
+ */
+
+void handle_command(char *command)
 {
-    int bufsize = MAX_ARGUMENTS;
-    int position = 0;
-    char **arguments = (char **)malloc(bufsize * sizeof(char *));
-    char *argument;
+	char *arguments[MAX_ARGUMENTS + 1]; /* Additional space for NULL */
 
-    if (!arguments)
-    {
-        perror("Memory allocation error");
-        _exit(EXIT_FAILURE);
-    }
+	if (command == NULL)
+	{
+		write_stderr("Invalid command\n");
+		return;
+	}
 
-    argument = strtok(line, " \t\n\r\a");
-    while (argument != NULL)
-    {
-        // Check for comments (ignore anything after #)
-        if (argument[0] == '#')
-        {
-            break;
-        }
+	tokenize_arguments(command, arguments);
 
-        arguments[position] = argument;
-        position++;
+	if (arguments[0] != NULL)
+	{
+		if (my_strcmp(arguments[0], "exit") == 0)
+		{
+			write_stdout("\n");
+			return; /* Exit the shell */
+		}
 
-        if (position >= bufsize)
-        {
-            bufsize += MAX_ARGUMENTS;
-            arguments = (char **)realloc(arguments, bufsize * sizeof(char *));
-            if (!arguments)
-            {
-                perror("Memory allocation error");
-                _exit(EXIT_FAILURE);
-            }
-        }
-
-        argument = strtok(NULL, " \t\n\r\a");
-    }
-    arguments[position] = NULL;
-    return arguments;
+		execute_command(arguments);
+	}
 }
 
-Alias *find_alias(char *name)
+/**
+ * print_path_environment_variable - Prints the value of the PATH
+ * environment variable.
+ * This function retrieves the value of the PATH environment variable using
+ * the my_getenv function.
+ * If the value is found, it is printed to the standard output along
+ * with a descriptive message.
+ */
+
+void print_path_environment_variable(void)
 {
-    Alias *current = alias_list;
-    while (current != NULL)
-    {
-        if (strcmp(current->name, name) == 0)
-        {
-            return current;
-        }
-        current = current->next;
-    }
-    return NULL;
+	const char *variable_name = "PATH";
+	char *value = my_getenv(variable_name);
+
+	if (value != NULL)
+	{
+		write_stdout("Value of ");
+		write_stdout(variable_name);
+		write_stdout(": ");
+		write_stdout(value);
+		write_stdout("\n");
+	}
+	else
+	{
+	    write_stdout("Environment variable ");
+	    write_stdout(variable_name);
+	    write_stdout(" n not found\n");
+	}
 }
 
-void print_aliases()
+/**
+ * main - Entry point of the shell program.
+ *
+ * Return: Always 0.
+ */
+
+int main(int argc, char *argv[], char *env[])
 {
-    Alias *current = alias_list;
-    while (current != NULL)
-    {
-        write(STDOUT_FILENO, current->name, strlen(current->name));
-        write(STDOUT_FILENO, "='", 2);
-        write(STDOUT_FILENO, current->value, strlen(current->value));
-        write(STDOUT_FILENO, "'\n", 2);
-        current = current->next;
-    }
-}
+	info_t info;
+	char *command = NULL;
+	size_t command_len;/* = my_strlen(command); */
+	char *command_path;
 
-void print_alias(char *name)
-{
-    Alias *alias = find_alias(name);
-    if (alias != NULL)
-    {
-        write(STDOUT_FILENO, alias->name, strlen(alias->name));
-        write(STDOUT_FILENO, "='", 2);
-        write(STDOUT_FILENO, alias->value, strlen(alias->value));
-        write(STDOUT_FILENO, "'\n", 2);
-    }
-}
-
-void set_alias(char *name, char *value)
-{
-    Alias *alias = find_alias(name);
-    if (alias != NULL)
-    {
-        // If the alias already exists, replace its value
-        free(alias->value);
-        alias->value = strdup(value);
-    }
-    else
-    {
-        // If the alias doesn't exist, create a new one
-        Alias *new_alias = (Alias *)malloc(sizeof(Alias));
-        if (new_alias == NULL)
-        {
-            perror("Memory allocation error");
-            _exit(EXIT_FAILURE);
-        }
-        new_alias->name = strdup(name);
-        new_alias->value = strdup(value);
-        new_alias->next = alias_list;
-        alias_list = new_alias;
-    }
-}
-
-void execute_alias_command(char **arguments)
-{
-    if (arguments[1] == NULL)
-    {
-        // Print all aliases if no arguments are given
-        print_aliases();
-    }
-    else
-    {
-        int i = 1;
-        while (arguments[i] != NULL)
-        {
-            if (strchr(arguments[i], '='))
-            {
-                // If the argument contains '=', it's an alias definition
-                char *name = strtok(arguments[i], "=");
-                char *value = strtok(NULL, "=");
-                if (name != NULL && value != NULL)
-                {
-                    set_alias(name, value);
-                }
-                else
-                {
-                    char *error_msg = "Invalid alias format: ";
-                    write(STDERR_FILENO, error_msg, strlen(error_msg));
-                    write(STDERR_FILENO, arguments[i], strlen(arguments[i]));
-                    write(STDERR_FILENO, "\n", 1);
-                }
-            }
-            else
-            {
-                // Otherwise, it's an alias name to print
-                print_alias(arguments[i]);
-            }
-            i++;
-        }
-    }
-}
-
-int execute_command(char **arguments, char *path)
-{
-    char *full_path;
-    pid_t pid, wpid;
-    int status;
-
-    if (strcmp(arguments[0], "exit") == 0)
-    {
-        if (arguments[1] != NULL)
-        {
-            int exit_status = atoi(arguments[1]);
-            _exit(exit_status);
-        }
-        else
-        {
-            _exit(0);
-        }
-    }
-    else if (strcmp(arguments[0], "setenv") == 0)
-    {
-        if (arguments[1] == NULL || arguments[2] == NULL)
-        {
-            char *usage_msg = "Usage: setenv VARIABLE VALUE\n";
-            write(STDERR_FILENO, usage_msg, strlen(usage_msg));
-            return 1;
-        }
-        if (setenv(arguments[1], arguments[2], 1) == -1)
-        {
-            perror("Error setting environment variable");
-            return 1;
-        }
-        return 1;
-    }
-    else if (strcmp(arguments[0], "unsetenv") == 0)
-    {
-        if (arguments[1] == NULL)
-        {
-            char *usage_msg = "Usage: unsetenv VARIABLE\n";
-            write(STDERR_FILENO, usage_msg, strlen(usage_msg));
-            return 1;
-        }
-        if (unsetenv(arguments[1]) == -1)
-        {
-            perror("Error unsetting environment variable");
-            return 1;
-        }
-        return 1;
-    }
-    else if (strcmp(arguments[0], "cd") == 0)
-    {
-        char *dir;
-        if (arguments[1] == NULL || strcmp(arguments[1], "~") == 0)
-        {
-            // If no argument is given or if "~" is given, change to $HOME directory
-            dir = getenv("HOME");
-            if (dir == NULL)
-            {
-                char *error_msg = "cd: No HOME environment variable set\n";
-                write(STDERR_FILENO, error_msg, strlen(error_msg));
-                return 1;
-            }
-        }
-        else if (strcmp(arguments[1], "-") == 0)
-        {
-            // Change to the previous directory
-            dir = getenv("OLDPWD");
-            if (dir == NULL)
-            {
-                char *error_msg = "cd: No OLDPWD environment variable set\n";
-                write(STDERR_FILENO, error_msg, strlen(error_msg));
-                return 1;
-            }
-        }
-        else
-        {
-            dir = arguments[1];
-        }
-
-        char current_dir[4096];
-        if (getcwd(current_dir, sizeof(current_dir)) == NULL)
-        {
-            perror("getcwd");
-            return 1;
-        }
-
-        if (chdir(dir) != 0)
-        {
-            perror("cd");
-            return 1;
-        }
-
-        // Update PWD and OLDPWD environment variables
-        if (setenv("OLDPWD", current_dir, 1) == -1)
-        {
-            perror("Error setting OLDPWD environment variable");
-            return 1;
-        }
-
-        char new_dir[4096];
-        if (getcwd(new_dir, sizeof(new_dir)) == NULL)
-        {
-            perror("getcwd");
-            return 1;
-        }
-        if (setenv("PWD", new_dir, 1) == -1)
-        {
-            perror("Error setting PWD environment variable");
-            return 1;
-        }
-
-        return 1;
-    }
-
-    // Handle variable replacement
-    for (int i = 0; arguments[i] != NULL; i++)
-    {
-        char *arg = arguments[i];
-        char *replaced_arg = NULL;
-
-        if (strcmp(arg, "$?") == 0)
-        {
-            // Replace $? with the exit status of the last command
-            asprintf(&replaced_arg, "%d", last_exit_status);
-        }
-        else if (strcmp(arg, "$$") == 0)
-        {
-            // Replace $$ with the process ID of the shell
-            asprintf(&replaced_arg, "%d", getpid());
-        }
-
-        if (replaced_arg != NULL)
-        {
-            free(arguments[i]);
-            arguments[i] = replaced_arg;
-        }
-    }
-
-    if (strcmp(arguments[0], "alias") == 0)
-    {
-        execute_alias_command(arguments);
-        return 1;
-    }
-
-    if (strcmp(arguments[0], "env") == 0)
-    {
-        char **env_var = environ;
-        while (*env_var)
-        {
-            write(STDOUT_FILENO, *env_var, strlen(*env_var));
-            write(STDOUT_FILENO, "\n", 1);
-            env_var++;
-        }
-        return 1;
-    }
-
-    full_path = search_command(arguments[0], path);
-    if (full_path == NULL)
-    {
-        char *error_msg = "command not found: ";
-        write(STDERR_FILENO, error_msg, strlen(error_msg));
-        write(STDERR_FILENO, arguments[0], strlen(arguments[0]));
-        write(STDERR_FILENO, "\n", 1);
-        return 1;
-    }
-
-    pid = fork();
-    if (pid == 0)
-    {
-        // Child process
-        if (execve(full_path, arguments, environ) == -1)
-        {
-            perror("Error");
-        }
-        _exit(EXIT_FAILURE);
-    }
-    else if (pid < 0)
-    {
-        // Forking error
-        perror("Error");
-    }
-    else
-    {
-        // Parent process
-        do
-        {
-            wpid = waitpid(pid, &status, WUNTRACED);
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
-    }
-
-    free(full_path);
-    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
-}
-
-int execute_multiple_commands(char *line, char *path)
-{
-    char *command;
-    char *saveptr;
-
-    command = strtok_r(line, ";", &saveptr);
-    while (command != NULL)
-    {
-        int should_execute = 1;
-        char **arguments;
-
-        // Check if the command contains '&&' or '||'
-        if (strstr(command, "&&"))
-        {
-            arguments = parse_arguments(command);
-            for (int i = 0; arguments[i] != NULL; i++)
-            {
-                if (strcmp(arguments[i], "&&") == 0)
-                {
-                    should_execute = should_execute && (execute_command(arguments, path) == 0);
-                }
-            }
-        }
-        else if (strstr(command, "||"))
-        {
-            arguments = parse_arguments(command);
-            for (int i = 0; arguments[i] != NULL; i++)
-            {
-                if (strcmp(arguments[i], "||") == 0)
-                {
-                    should_execute = should_execute && (execute_command(arguments, path) != 0);
-                }
-            }
-        }
-        else
-        {
-            arguments = parse_arguments(command);
-            should_execute = execute_command(arguments, path) == 0;
-        }
-
-        free(arguments);
-
-        if (!should_execute)
-        {
-            break; // Stop executing further commands on false condition
-        }
-
-        command = strtok_r(NULL, ";", &saveptr);
-    }
-}
-
-int main(int argc, char *argv[])
-{
-    char *line;
-    int status = 1;
-    int read_from_file = 0; // Set to 1 if reading from a file
-    FILE *file = NULL;
-
-    write(STDOUT_FILENO, "Simple Shell\n", 13);
-
-    if (argc > 1)
-    {
-        file = fopen(argv[1], "r");
-        if (file == NULL)
-        {
-            perror("Error opening file");
-            return 1;
-        }
-        read_from_file = 1;
-    }
-
-    char *path = getenv("PATH");
-    if (path == NULL)
-    {
-        perror("Error getting PATH environment variable");
-        return 1;
-    }
-
-    do
-    {
-        if (read_from_file)
-        {
-            line = read_line_from_file(file);
-            if (line == NULL)
-            {
-                break;
-            }
-        }
-        else
-        {
-            write(STDOUT_FILENO, "> ", 2);
-            line = read_line();
-        }
-
-        status = execute_multiple_commands(line, path);
-
-        free(line);
-    } while (status);
-
-    if (read_from_file)
-    {
-        fclose(file);
-    }
-
-    return 0;
+	while (1)
+	{
+		write_stdout("$ ");
+		command = read_command();
+		if (command == NULL)
+		break;
+		command_len = my_strlen(command);
+		if (command_len == 0) /* Check if input is empty */
+		continue;
+		if (my_strcmp(command, "exit") == 0)
+		{
+			break; /* Terminate the shell loop */}
+		else if (my_strcmp(command, "env") == 0)
+		{
+			write_stdout("\n");
+			print_environment(info.env);
+			continue; /* Continue to the next iteration of the loop */
+		}
+		else if (my_strcmp(command, "ls") == 0)
+		{
+			list_files();
+			free(command); /* Call the list_files() display the cd */
+			continue;
+		}
+		handle_command(command);
+		command_path = get_command_path(command); /* Get the command path */
+		if (command_path == NULL)
+		{
+			continue;  /* Continue to the next iteration of the loop */
+		}
+		free(command);
+		print_path_environment_variable();
+		free(command);
+	}
+	return (0);
 }
